@@ -50,13 +50,18 @@ def run_project(project_path):
         st.error(str(e))
 
 # ==============================
-# 📤 Push Project
+# 📤 Push Project (FIXED)
 # ==============================
 def push_project(repo_url, folder_path):
     try:
         if not os.path.exists(folder_path):
             st.error("❌ Invalid folder path")
             return
+
+        # Remove nested repo if exists (pcinfo fix)
+        nested_path = os.path.join(folder_path, "pcinfo")
+        if os.path.exists(nested_path):
+            subprocess.run(["git", "rm", "--cached", "pcinfo"], cwd=folder_path)
 
         commands = [
             ["git", "init"],
@@ -71,22 +76,48 @@ def push_project(repo_url, folder_path):
             st.text(result.stdout)
             st.text(result.stderr)
 
-        # Remove origin if exists (ignore error)
+        # Reset remote
         subprocess.run(["git", "remote", "remove", "origin"], cwd=folder_path, capture_output=True)
-
         subprocess.run(["git", "remote", "add", "origin", repo_url], cwd=folder_path)
 
-        result = subprocess.run(
+        # 🔥 FIX: Pull first to avoid rejection
+        pull = subprocess.run(
+            ["git", "pull", "origin", "main", "--allow-unrelated-histories"],
+            cwd=folder_path,
+            capture_output=True,
+            text=True
+        )
+        st.text(pull.stdout)
+        st.text(pull.stderr)
+
+        # Push
+        push = subprocess.run(
             ["git", "push", "-u", "origin", "main"],
             cwd=folder_path,
             capture_output=True,
             text=True
         )
 
-        st.text(result.stdout)
-        st.text(result.stderr)
+        st.text(push.stdout)
+        st.text(push.stderr)
 
-        if result.returncode == 0:
+        # 🔥 fallback force push
+        if push.returncode != 0:
+            st.warning("⚠️ Normal push failed, trying force push...")
+            force = subprocess.run(
+                ["git", "push", "-u", "origin", "main", "--force"],
+                cwd=folder_path,
+                capture_output=True,
+                text=True
+            )
+            st.text(force.stdout)
+            st.text(force.stderr)
+
+            if force.returncode == 0:
+                st.success("🚀 Project pushed successfully (force)!")
+            else:
+                st.error("❌ Push failed completely")
+        else:
             st.success("🚀 Project pushed successfully!")
 
     except Exception as e:
@@ -137,7 +168,6 @@ def show_git_summary(folder_path):
 # ==============================
 # 🎯 UI
 # ==============================
-
 mode = st.radio("Choose Mode", ["Manual", "AI Command"])
 
 repo_url = st.text_input("Enter Repository URL")
@@ -158,7 +188,6 @@ if st.button("Run"):
     st.write("### 🔧 Output:")
 
     try:
-        # AI MODE
         if mode == "AI Command":
             intent = detect_intent(user_command)
 
@@ -177,7 +206,6 @@ if st.button("Run"):
             else:
                 st.warning("❌ Could not understand command")
 
-        # MANUAL MODE
         else:
             if action == "Clone Repo":
                 folder = clone_repo(repo_url)
